@@ -97,7 +97,6 @@ int dma_init(struct zynq_ipif_dma *, struct zynq_ipif_dma_config *);
 int dma_read_buffer(struct zynq_ipif_dma *, u8 *, u32);
 int dma_write_buffer(struct zynq_ipif_dma *, u8 *, u32);
 int dma_enable(struct zynq_ipif_dma *, bool);
-int dma_start_server(struct zynq_ipif_dma_share *);
 void dma_exit(struct zynq_ipif_dma *);
 
 int zynq_ipif_init(struct zynq_ipif *, struct zynq_ipif_config *);
