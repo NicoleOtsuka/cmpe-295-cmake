@@ -81,8 +81,9 @@ static int reg_init(struct zynq_ipif_regmap *regmap, u32 size)
 	return 0;
 }
 
-int reg_read(struct zynq_ipif_regmap *regmap, u32 addr, u32 *val)
+int zynq_ipif_reg_read(struct zynq_ipif *ipif, u32 addr, u32 *val)
 {
+	struct zynq_ipif_regmap *regmap = ipif->regmap;
 	int ret;
 
 	sysfs_write("reg_addr", addr);
@@ -91,8 +92,9 @@ int reg_read(struct zynq_ipif_regmap *regmap, u32 addr, u32 *val)
 	return ret == sizeof(val) ? 0 : -EINVAL;
 }
 
-int reg_write(struct zynq_ipif_regmap *regmap, u32 addr, u32 val)
+int zynq_ipif_reg_write(struct zynq_ipif *ipif, u32 addr, u32 val)
 {
+	struct zynq_ipif_regmap *regmap = ipif->regmap;
 	int ret;
 
 	sysfs_write("reg_addr", addr);
@@ -122,17 +124,17 @@ static void *DMA_callback(void *threadid)
 	pthread_exit(NULL);
 }
 
-void *DMA_shared_thread(void *threadid)
+void *DMA_engine_thread(void *threadid)
 {
-	struct zynq_ipif_dma_share *dma_share =
-		(struct zynq_ipif_dma_share *)threadid;
-	struct epoll_event *events = dma_share->events;
-	struct zynq_ipif *parent = dma_share->parent;
+	struct zynq_ipif_dma_engine *dma_engine =
+		(struct zynq_ipif_dma_engine *)threadid;
+	struct epoll_event *events = dma_engine->events;
+	struct zynq_ipif *parent = dma_engine->parent;
 	struct zynq_ipif_dma *dma = parent->dma;
-	int n, i, j, max = dma_share->max_conn;
+	int n, i, j, max = dma_engine->max_conn;
 
 loop:
-	n = epoll_wait(dma_share->epfd, events, max, -1);
+	n = epoll_wait(dma_engine->epfd, events, max, -1);
 	if (n < 0 && errno == EINTR) {
 		goto loop;
 	} else if (n < 0) {
@@ -149,17 +151,17 @@ loop:
 	goto loop;
 }
 
-int dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *dma_config)
+int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *dma_config)
 {
 	u32 dma_size = dma_config->buf_size * dma_config->buf_num;
-	struct zynq_ipif_dma_share *dma_share;
+	struct zynq_ipif_dma_engine *dma_engine;
 	char tmp[STRING_MAX];
 	int flags, ret;
 
 	if (!dma)
 		return -ENODEV;
 
-	dma_share = &dma->parent->dma_share;
+	dma_engine = &dma->parent->dma_engine;
 
 	sprintf(tmp, "dma%d_cyclic", dma->index);
 	sysfs_write(tmp, dma_config->cyclic);
@@ -200,7 +202,7 @@ int dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *dma_config)
 	dma->ev.events |= !dma_config->direction ? EPOLLIN : EPOLLOUT;
 	dma->ev.data.fd = dma->fd;
 
-	ret = epoll_ctl(dma_share->epfd, EPOLL_CTL_ADD, dma->fd, &dma->ev);
+	ret = epoll_ctl(dma_engine->epfd, EPOLL_CTL_ADD, dma->fd, &dma->ev);
 	if (ret < 0) {
 		printf("Error epoll_ctl: %i\n", errno);
 		return ret;
@@ -234,7 +236,7 @@ int dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *dma_config)
 	return 0;
 }
 
-int dma_read_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
+int zynq_ipif_dma_read_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
 {
 	if (!dma || !dma->active)
 		return -ENODEV;
@@ -244,7 +246,7 @@ int dma_read_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
 	return read(dma->fd, buf, size);
 }
 
-int dma_write_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
+int zynq_ipif_dma_write_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
 {
 	if (!dma || !dma->active)
 		return -ENODEV;
@@ -254,7 +256,7 @@ int dma_write_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
 	return write(dma->fd, buf, size);
 }
 
-int dma_enable(struct zynq_ipif_dma *dma, bool enable)
+int zynq_ipif_dma_enable(struct zynq_ipif_dma *dma, bool enable)
 {
 	char tmp[STRING_MAX];
 
@@ -267,7 +269,7 @@ int dma_enable(struct zynq_ipif_dma *dma, bool enable)
 	return 0;
 }
 
-void dma_exit(struct zynq_ipif_dma *dma)
+void zynq_ipif_dma_exit(struct zynq_ipif_dma *dma)
 {
 	if (!dma || !dma->active)
 		return;
@@ -313,7 +315,7 @@ void *IRQ_handler(void *threadid)
 
 int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 {
-	struct zynq_ipif_dma_share *dma_share = &ipif->dma_share;
+	struct zynq_ipif_dma_engine *dma_engine = &ipif->dma_engine;
 	struct epoll_event ev;
 	int i, ret;
 
@@ -337,9 +339,9 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 		ipif->dma[i].parent = ipif;
 	}
 
-	dma_share->parent = ipif;
-	dma_share->max_conn = DMA_CHAN_MAX;
-	dma_share->epfd = epoll_create(DMA_CHAN_MAX);
+	dma_engine->parent = ipif;
+	dma_engine->max_conn = DMA_CHAN_MAX;
+	dma_engine->epfd = epoll_create(DMA_CHAN_MAX);
 
 	reg_init(ipif->regmap, ipif_config->regmap_size);
 
@@ -367,21 +369,23 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 	return 0;
 }
 
-int zynq_ipif_prepare_dma_share(struct zynq_ipif_dma_share *dma_share)
+int zynq_ipif_prepare_dma_engine(struct zynq_ipif *ipif)
 {
+	struct zynq_ipif_dma_engine *dma_engine = &ipif->dma_engine;
 	int ret;
 
-	ret = pthread_create(&dma_share->thread, NULL, DMA_shared_thread, (void *)dma_share);
+	ret = pthread_create(&dma_engine->thread, NULL, DMA_engine_thread, (void *)dma_engine);
 	if (ret)
 		printf("failed to create pthread: %d\n", ret);
 
 	return ret;
 }
 
-int zynq_ipif_unprepare_dma_share(struct zynq_ipif_dma_share *dma_share)
+int zynq_ipif_unprepare_dma_engine(struct zynq_ipif *ipif)
 {
-	pthread_cancel(dma_share->thread);
-	return pthread_join(dma_share->thread, NULL);
+	struct zynq_ipif_dma_engine *dma_engine = &ipif->dma_engine;
+	pthread_cancel(dma_engine->thread);
+	return pthread_join(dma_engine->thread, NULL);
 }
 
 void zynq_ipif_exit(struct zynq_ipif *ipif)

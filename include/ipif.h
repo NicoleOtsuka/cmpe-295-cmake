@@ -30,7 +30,7 @@ struct zynq_ipif_regmap {
 	u32 volatile_type;
 };
 
-struct zynq_ipif_dma_share {
+struct zynq_ipif_dma_engine {
 	struct epoll_event events[DMA_CHAN_MAX];
 	struct zynq_ipif *parent;
 	pthread_t thread;
@@ -74,7 +74,7 @@ struct zynq_ipif_dma_config {
 
 struct zynq_ipif {
 	struct zynq_ipif_dma dma[DMA_CHAN_MAX];
-	struct zynq_ipif_dma_share dma_share;
+	struct zynq_ipif_dma_engine dma_engine;
 	pthread_t epoll_thread, irq_thread;
 	struct zynq_ipif_regmap *regmap;
 	int epfd, fd;
@@ -90,16 +90,15 @@ struct zynq_ipif_config {
 	int (*irq_handler) (struct zynq_ipif *);
 };
 
-int reg_read(struct zynq_ipif_regmap *, u32, u32 *);
-int reg_write(struct zynq_ipif_regmap *, u32, u32);
-
-int dma_init(struct zynq_ipif_dma *, struct zynq_ipif_dma_config *);
-int dma_read_buffer(struct zynq_ipif_dma *, u8 *, u32);
-int dma_write_buffer(struct zynq_ipif_dma *, u8 *, u32);
-int dma_enable(struct zynq_ipif_dma *, bool);
-void dma_exit(struct zynq_ipif_dma *);
-
 int zynq_ipif_init(struct zynq_ipif *, struct zynq_ipif_config *);
-int zynq_ipif_prepare_dma_share(struct zynq_ipif_dma_share *);
-int zynq_ipif_unprepare_dma_share(struct zynq_ipif_dma_share *);
+int zynq_ipif_prepare_dma_engine(struct zynq_ipif *);
+int zynq_ipif_reg_read(struct zynq_ipif *, u32, u32 *);
+int zynq_ipif_reg_write(struct zynq_ipif *, u32, u32);
+int zynq_ipif_unprepare_dma_engine(struct zynq_ipif *);
 void zynq_ipif_exit(struct zynq_ipif *);
+
+int zynq_ipif_dma_init(struct zynq_ipif_dma *, struct zynq_ipif_dma_config *);
+int zynq_ipif_dma_read_buffer(struct zynq_ipif_dma *, u8 *, u32);
+int zynq_ipif_dma_write_buffer(struct zynq_ipif_dma *, u8 *, u32);
+int zynq_ipif_dma_enable(struct zynq_ipif_dma *, bool);
+void zynq_ipif_dma_exit(struct zynq_ipif_dma *);

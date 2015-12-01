@@ -73,7 +73,7 @@ static int DMA_input_callback(struct zynq_ipif_dma *dma)
 		buf[dma->buf_ptr++ % buf_max] = test_buf[0][dma->io_ptr++];
 
 	if (access == DMA_BUF_ACCESS_TYPE_RWIO)
-		dma_write_buffer(dma, (u8 *)&test_buf[0][dma->io_ptr], PERIOD_SIZE);
+		zynq_ipif_dma_write_buffer(dma, (u8 *)&test_buf[0][dma->io_ptr], PERIOD_SIZE);
 
 	return 0;
 }
@@ -89,7 +89,7 @@ static int DMA_output_callback(struct zynq_ipif_dma *dma)
 		test_buf[1][dma->io_ptr++] = buf[dma->buf_ptr++ % buf_max];
 
 	if (access == DMA_BUF_ACCESS_TYPE_RWIO)
-		dma_read_buffer(dma, (u8 *)&test_buf[1][dma->io_ptr], PERIOD_SIZE);
+		zynq_ipif_dma_read_buffer(dma, (u8 *)&test_buf[1][dma->io_ptr], PERIOD_SIZE);
 
 	return 0;
 }
@@ -141,37 +141,37 @@ int main()
 
 	zynq_ipif_init(&ipif, &ipif_config);
 
-	reg_write(regmap, 0x0, 0x1f);
-	reg_write(regmap, 0x0, 0x0);
+	zynq_ipif_reg_write(&ipif, 0x0, 0x1f);
+	zynq_ipif_reg_write(&ipif, 0x0, 0x0);
 
-	reg_write(regmap, 0x1c, 10000);
+	zynq_ipif_reg_write(&ipif, 0x1c, 10000);
 
-	dma_init(&ipif.dma[0], &dma_config[0]);
-	dma_init(&ipif.dma[2], &dma_config[2]);
+	zynq_ipif_dma_init(&ipif.dma[0], &dma_config[0]);
+	zynq_ipif_dma_init(&ipif.dma[2], &dma_config[2]);
 
-	zynq_ipif_prepare_dma_share(&ipif.dma_share);
+	zynq_ipif_prepare_dma_engine(&ipif);
 
 	/* Fill the ring buffer as the initialization */
-	dma_write_buffer(&ipif.dma[0], (u8 *)test_buf[0], BUF_SIZE);
+	zynq_ipif_dma_write_buffer(&ipif.dma[0], (u8 *)test_buf[0], BUF_SIZE);
 
-	dma_enable(&ipif.dma[0], 1);
-	dma_enable(&ipif.dma[2], 1);
+	zynq_ipif_dma_enable(&ipif.dma[0], 1);
+	zynq_ipif_dma_enable(&ipif.dma[2], 1);
 
-	reg_write(regmap, 0x4, 0x1f);
-	reg_write(regmap, 0x8, 0x6667);
+	zynq_ipif_reg_write(&ipif, 0x4, 0x1f);
+	zynq_ipif_reg_write(&ipif, 0x8, 0x6667);
 
 	sleep(2);
 
-	reg_write(regmap, 0x8, 0x0);
-	reg_write(regmap, 0x4, 0x0);
+	zynq_ipif_reg_write(&ipif, 0x8, 0x0);
+	zynq_ipif_reg_write(&ipif, 0x4, 0x0);
 
-	dma_enable(&ipif.dma[0], 0);
-	dma_enable(&ipif.dma[2], 0);
+	zynq_ipif_dma_enable(&ipif.dma[0], 0);
+	zynq_ipif_dma_enable(&ipif.dma[2], 0);
 
-	zynq_ipif_unprepare_dma_share(&ipif.dma_share);
+	zynq_ipif_unprepare_dma_engine(&ipif);
 
-	dma_exit(&ipif.dma[0]);
-	dma_exit(&ipif.dma[2]);
+	zynq_ipif_dma_exit(&ipif.dma[0]);
+	zynq_ipif_dma_exit(&ipif.dma[2]);
 
 	for (i = 0; i < ARRAY_SIZE(test_buf[0]); i++)
 		if (test_buf[0][i] != test_buf[1][i])
