@@ -18,6 +18,7 @@
 
 #define STRING_MAX	256
 
+/* Read SYSFS nodes */
 static int sysfs_read(char *node, u32 *value)
 {
 	char tmp[STRING_MAX];
@@ -53,6 +54,7 @@ static int sysfs_read(char *node, u32 *value)
 	return 0;
 }
 
+/* Write SYSFS nodes */
 static int sysfs_write(char *node, u32 value)
 {
 	char tmp[STRING_MAX];
@@ -83,6 +85,7 @@ static int sysfs_write(char *node, u32 value)
 	return 0;
 }
 
+/* Initialize register map */
 static int reg_init(struct zynq_ipif *ipif, u32 size)
 {
 	struct zynq_ipif_regmap *regmap = ipif->regmap;
@@ -201,6 +204,7 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 
 	dma_engine = &dma->parent->dma_engine;
 
+	/* Write DMA channel configurations */
 	snprintf(tmp, STRING_MAX, "dma%d_cyclic", dma->index);
 	ret = sysfs_write(tmp, dma_config->cyclic);
 	if (ret)
@@ -231,11 +235,13 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 	if (ret)
 		return ret;
 
+	/* Open DMA channel device for callback polling */
 	snprintf(tmp, STRING_MAX, "/dev/zynq_ipif_dma%d", dma->index);
 	dma->fd = open(tmp, O_RDWR);
 	if (dma->fd < 0)
 		return -errno;
 
+	/* Setup polling */
 	ret = fcntl(dma->fd, F_SETOWN, getpid());
 	if (ret < 0) {
 		ret = -errno;
@@ -266,6 +272,7 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 	dma->ev.events |= !dma_config->direction ? EPOLLIN : EPOLLOUT;
 	dma->ev.data.fd = dma->fd;
 
+	/* Add this DMA channel to shared epoll of DMA engine */
 	ret = epoll_ctl(dma_engine->epfd, EPOLL_CTL_ADD, dma->fd, &dma->ev);
 	if (ret < 0) {
 		printf("Error epoll_ctl: %i\n", errno);
@@ -279,6 +286,7 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 			goto fail_epoll;
 		}
 
+		/* Memory map the DMA buffer from kernel space to user space*/
 		dma->buf = mmap(0, PAGE_ALIGN(dma_size),
 				dma_config->direction ? PROT_READ : PROT_WRITE,
 				MAP_SHARED, dma->fd, 0);
@@ -359,6 +367,9 @@ void zynq_ipif_dma_exit(struct zynq_ipif_dma *dma)
 	if (!dma || !dma->active)
 		return;
 
+	if (dma->access & DMA_BUF_ACCESS_TYPE_MASK == DMA_BUF_ACCESS_TYPE_MMAP)
+		munmap(dma->buf, PAGE_ALIGN(dma->buf_size * dma->buf_num));
+
 	if (dma)
 		pthread_cancel(dma->io_thread);
 	close(dma->fd);
@@ -436,10 +447,12 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 		return ret;
 	}
 
+	/* Open IPIF irq device */
 	ipif->fd = open("/dev/zynq_ipif_irq", O_RDWR);
 	if (ipif->fd < 0)
 		return -errno;
 
+	/* Use epoll to poll the irq from kernel space */
 	ipif->epfd = epoll_create1(0);
 	if (ipif->epfd < 0) {
 		printf("failed to create epoll: %d\n", errno);
@@ -455,12 +468,14 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 		goto fail_epoll;
 	}
 
+	/* Thread for epoll */
 	ret = pthread_create(&ipif->epoll_thread, NULL, IRQ_thread, (void *)ipif);
 	if (ret) {
 		printf("failed to create pthread: %d\n", ret);
 		goto fail_epoll;
 	}
 
+	/* Thread for actual IRQ handling */
 	ret = pthread_create(&ipif->irq_thread, NULL, IRQ_handler, (void *)ipif);
 	if (ret) {
 		printf("failed to create pthread: %d\n", ret);
@@ -471,6 +486,7 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 
 fail_irq_thread:
 	pthread_cancel(ipif->epoll_thread);
+	pthread_join(ipif->epoll_thread, NULL);
 fail_epoll:
 	close(ipif->fd);
 
@@ -482,6 +498,7 @@ int zynq_ipif_prepare_dma_engine(struct zynq_ipif *ipif)
 	struct zynq_ipif_dma_engine *dma_engine = &ipif->dma_engine;
 	int ret;
 
+	/* Create a shared thread for all DMA channels to poll DMA callbacks */
 	ret = pthread_create(&dma_engine->thread, NULL, DMA_engine_thread, (void *)dma_engine);
 	if (ret)
 		printf("failed to create pthread: %d\n", ret);
