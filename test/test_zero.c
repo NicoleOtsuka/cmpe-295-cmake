@@ -61,6 +61,7 @@ static struct zynq_ipif_config ipif_config = {
 
 #define TEST_SIZE	1024
 static int test_buf[2][TEST_SIZE];
+static u32 counter[2];
 
 static int DMA_input_callback(struct zynq_ipif_dma *dma)
 {
@@ -69,11 +70,13 @@ static int DMA_input_callback(struct zynq_ipif_dma *dma)
 	u32 *buf = (u32 *)dma->buf;
 	int i;
 
-	for (i = 0; access && i < DATA_BURST && dma->io_ptr < TEST_SIZE; i++)
-		buf[dma->buf_ptr++ % buf_max] = test_buf[0][dma->io_ptr++];
+	for (i = 0; access && i < DATA_BURST && counter[0] < TEST_SIZE; i++)
+		buf[dma->io_ptr++ % buf_max] = test_buf[0][counter[0]++];
 
-	if (access == DMA_BUF_ACCESS_TYPE_RWIO)
-		zynq_ipif_dma_write_buffer(dma, (u8 *)&test_buf[0][dma->io_ptr], PERIOD_SIZE);
+	if (access == DMA_BUF_ACCESS_TYPE_RWIO) {
+		zynq_ipif_dma_write_buffer(dma, (u8 *)&test_buf[0][counter[0]], PERIOD_SIZE);
+		counter[0] += DATA_BURST;
+	}
 
 	return 0;
 }
@@ -85,18 +88,25 @@ static int DMA_output_callback(struct zynq_ipif_dma *dma)
 	u32 *buf = (u32 *)dma->buf;
 	int i;
 
-	for (i = 0; access && i < DATA_BURST && dma->io_ptr < TEST_SIZE; i++)
-		test_buf[1][dma->io_ptr++] = buf[dma->buf_ptr++ % buf_max];
+	for (i = 0; access && i < DATA_BURST && counter[1] < TEST_SIZE; i++)
+		test_buf[1][counter[1]++] = buf[dma->io_ptr++ % buf_max];
 
-	if (access == DMA_BUF_ACCESS_TYPE_RWIO)
-		zynq_ipif_dma_read_buffer(dma, (u8 *)&test_buf[1][dma->io_ptr], PERIOD_SIZE);
+	if (access == DMA_BUF_ACCESS_TYPE_RWIO) {
+		zynq_ipif_dma_read_buffer(dma, (u8 *)&test_buf[1][counter[1]], PERIOD_SIZE);
+		counter[1] += DATA_BURST;
+	}
 
 	return 0;
 }
 
-static int DMA_condition(struct zynq_ipif_dma *dma)
+static int DMA_input_condition(struct zynq_ipif_dma *dma)
 {
-	return dma->io_ptr < TEST_SIZE;
+	return counter[0] < TEST_SIZE;
+}
+
+static int DMA_output_condition(struct zynq_ipif_dma *dma)
+{
+	return counter[1] < TEST_SIZE;
 }
 
 static struct zynq_ipif_dma_config dma_config[] = {
@@ -109,7 +119,7 @@ static struct zynq_ipif_dma_config dma_config[] = {
 		.cyclic = 1,
 		.access = DMA_BUF_ACCESS_TYPE_RWIO,
 		.direction = DMA_DIR_IN,
-		.condition = DMA_condition,
+		.condition = DMA_input_condition,
 		.callback = DMA_input_callback,
 	},
 	{
@@ -124,7 +134,7 @@ static struct zynq_ipif_dma_config dma_config[] = {
 		.cyclic = 1,
 		.access = DMA_BUF_ACCESS_TYPE_RWIO,
 		.direction = DMA_DIR_OUT,
-		.condition = DMA_condition,
+		.condition = DMA_input_condition,
 		.callback = DMA_output_callback,
 	},
 };
@@ -135,6 +145,8 @@ int main()
 	int i, test = 0x01020304;
 	char cmd[256];
 	int ret = 0;
+
+	counter[0] = counter[1] = 0;
 
 	for (i = 0; i < ARRAY_SIZE(test_buf[0]); i++)
 		test_buf[0][i] = test + i * 0x04040404;

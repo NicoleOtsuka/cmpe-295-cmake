@@ -71,11 +71,6 @@ static int DMA_output_callback(struct zynq_ipif_dma *dma)
 	return 0;
 }
 
-static int DMA_condition(struct zynq_ipif_dma *dma)
-{
-	return dma->io_ptr != TEST_SIZE;
-}
-
 static struct zynq_ipif_dma_config dma_config[] = {
 	{
 		.reg_addr = 0x200,
@@ -85,7 +80,6 @@ static struct zynq_ipif_dma_config dma_config[] = {
 		.burst = 1,
 		.access = DMA_BUF_ACCESS_TYPE_RWIO,
 		.direction = DMA_DIR_IN,
-		.condition = DMA_condition,
 		.callback = DMA_input_callback,
 	},
 	{
@@ -99,7 +93,6 @@ static struct zynq_ipif_dma_config dma_config[] = {
 		.burst = 1,
 		.access = DMA_BUF_ACCESS_TYPE_RWIO,
 		.direction = DMA_DIR_OUT,
-		.condition = DMA_condition,
 		.callback = DMA_output_callback,
 	},
 };
