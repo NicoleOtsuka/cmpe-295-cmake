@@ -77,6 +77,7 @@ struct zynq_ipif {
 	struct zynq_ipif_dma_engine dma_engine;
 	pthread_t epoll_thread, irq_thread;
 	struct zynq_ipif_regmap *regmap;
+	pthread_mutex_t mutex;
 	int epfd, fd;
 	sem_t sem;
 

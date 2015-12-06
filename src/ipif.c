@@ -62,13 +62,15 @@ static int sysfs_write(char *node, u32 value)
 	return ret;
 }
 
-static int reg_init(struct zynq_ipif_regmap *regmap, u32 size)
+static int reg_init(struct zynq_ipif *ipif, u32 size)
 {
+	struct zynq_ipif_regmap *regmap = ipif->regmap;
 	u32 i;
 
 	if (!regmap)
 		return -ENODEV;
 
+	pthread_mutex_lock(&ipif->mutex);
 	for (i = 0; i < size; i++) {
 		sysfs_write("reg_addr", regmap[i].addr);
 		sysfs_write("reg_readable", regmap[i].readable_type);
@@ -77,6 +79,7 @@ static int reg_init(struct zynq_ipif_regmap *regmap, u32 size)
 		if (regmap[i].writable_type && regmap[i].val)
 			sysfs_write("reg_val", regmap[i].val);
 	}
+	pthread_mutex_unlock(&ipif->mutex);
 
 	return 0;
 }
@@ -86,8 +89,10 @@ int zynq_ipif_reg_read(struct zynq_ipif *ipif, u32 addr, u32 *val)
 	struct zynq_ipif_regmap *regmap = ipif->regmap;
 	int ret;
 
+	pthread_mutex_lock(&ipif->mutex);
 	sysfs_write("reg_addr", addr);
 	ret = sysfs_read("reg_val", val);
+	pthread_mutex_unlock(&ipif->mutex);
 
 	return ret == sizeof(val) ? 0 : -EINVAL;
 }
@@ -97,8 +102,10 @@ int zynq_ipif_reg_write(struct zynq_ipif *ipif, u32 addr, u32 val)
 	struct zynq_ipif_regmap *regmap = ipif->regmap;
 	int ret;
 
+	pthread_mutex_lock(&ipif->mutex);
 	sysfs_write("reg_addr", addr);
 	ret = sysfs_write("reg_val", val);
+	pthread_mutex_unlock(&ipif->mutex);
 
 	return ret == sizeof(val) ? 0 : -EINVAL;
 }
@@ -331,6 +338,8 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 		return -ENODEV;
 	}
 
+	pthread_mutex_init(&ipif->mutex, NULL);
+
 	ipif->regmap = ipif_config->regmap;
 	ipif->irq_handler = ipif_config->irq_handler;
 
@@ -343,7 +352,7 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 	dma_engine->max_conn = DMA_CHAN_MAX;
 	dma_engine->epfd = epoll_create(DMA_CHAN_MAX);
 
-	reg_init(ipif->regmap, ipif_config->regmap_size);
+	reg_init(ipif, ipif_config->regmap_size);
 
 	ipif->fd = open("/dev/zynq_ipif_irq", O_RDWR);
 	if (!ipif->fd)
@@ -395,4 +404,5 @@ void zynq_ipif_exit(struct zynq_ipif *ipif)
 	pthread_cancel(ipif->epoll_thread);
 	pthread_join(ipif->epoll_thread, NULL);
 	close(ipif->fd);
+	pthread_mutex_destroy(&ipif->mutex);
 }
