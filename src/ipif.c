@@ -26,7 +26,7 @@ static int sysfs_read(char *node, u32 *value)
 	if (!node)
 		return -ENODEV;
 
-	sprintf(tmp, "%s/%s", SYSFS_PATH, node);
+	snprintf(tmp, STRING_MAX, "%s/%s", SYSFS_PATH, node);
 	fd = open(tmp, O_RDONLY);
 	ret = read(fd, tmp, STRING_MAX);
 	sscanf(tmp, "%x", value);
@@ -48,9 +48,9 @@ static int sysfs_write(char *node, u32 value)
 	if (!node)
 		return -ENODEV;
 
-	sprintf(tmp, "%s/%s", SYSFS_PATH, node);
+	snprintf(tmp, STRING_MAX, "%s/%s", SYSFS_PATH, node);
 	fd = open(tmp, O_WRONLY);
-	sprintf(tmp, "%x", value);
+	snprintf(tmp, STRING_MAX, "%x", value);
 	ret = write(fd, tmp, STRING_MAX);
 	close(fd);
 
@@ -170,25 +170,25 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 
 	dma_engine = &dma->parent->dma_engine;
 
-	sprintf(tmp, "dma%d_cyclic", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_cyclic", dma->index);
 	sysfs_write(tmp, dma_config->cyclic);
 
-	sprintf(tmp, "dma%d_width", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_width", dma->index);
 	sysfs_write(tmp, dma_config->width);
 
-	sprintf(tmp, "dma%d_burst", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_burst", dma->index);
 	sysfs_write(tmp, dma_config->burst);
 
-	sprintf(tmp, "dma%d_buf_size", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_buf_size", dma->index);
 	sysfs_write(tmp, dma_config->buf_size);
 
-	sprintf(tmp, "dma%d_buf_num", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_buf_num", dma->index);
 	sysfs_write(tmp, dma_config->buf_num);
 
-	sprintf(tmp, "dma%d_%s", dma->index, dma_config->direction ? "src" : "dst");
+	snprintf(tmp, STRING_MAX, "dma%d_%s", dma->index, dma_config->direction ? "src" : "dst");
 	sysfs_write(tmp, dma_config->reg_addr);
 
-	sprintf(tmp, "/dev/zynq_ipif_dma%d", dma->index);
+	snprintf(tmp, STRING_MAX, "/dev/zynq_ipif_dma%d", dma->index);
 	dma->fd = open(tmp, O_RDWR);
 	if (!dma->fd)
 		return -ENODEV;
@@ -273,7 +273,7 @@ int zynq_ipif_dma_enable(struct zynq_ipif_dma *dma, bool enable)
 	/* Reset io pointer */
 	dma->io_ptr = 0;
 
-	sprintf(tmp, "dma%d_ena", dma->index);
+	snprintf(tmp, STRING_MAX, "dma%d_ena", dma->index);
 	sysfs_write(tmp, enable);
 
 	return 0;
