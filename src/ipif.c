@@ -270,6 +270,9 @@ int zynq_ipif_dma_enable(struct zynq_ipif_dma *dma, bool enable)
 	if (!dma || !dma->active)
 		return -ENODEV;
 
+	/* Reset io pointer */
+	dma->io_ptr = 0;
+
 	sprintf(tmp, "dma%d_ena", dma->index);
 	sysfs_write(tmp, enable);
 
