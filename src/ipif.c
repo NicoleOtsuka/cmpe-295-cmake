@@ -27,17 +27,30 @@ static int sysfs_read(char *node, u32 *value)
 		return -ENODEV;
 
 	snprintf(tmp, STRING_MAX, "%s/%s", SYSFS_PATH, node);
+
 	fd = open(tmp, O_RDONLY);
+	if (fd < 0) {
+		printf("failed to open %s: %d\n", tmp, errno);
+		return -errno;
+	}
+
 	ret = read(fd, tmp, STRING_MAX);
-	sscanf(tmp, "%x", value);
+	if (ret < 0) {
+		printf("failed to read %s: %d\n", tmp, errno);
+		close(fd);
+		return -errno;
+	}
+
+	ret = sscanf(tmp, "%x", value);
+	if (ret == EOF) {
+		printf("failed to sscanf: %d\n", errno);
+		close(fd);
+		return -errno;
+	}
+
 	close(fd);
 
-	if (ret == strlen(tmp) + 1)
-		ret = sizeof(value);
-	else
-		ret = 0;
-
-	return ret;
+	return 0;
 }
 
 static int sysfs_write(char *node, u32 value)
@@ -49,23 +62,31 @@ static int sysfs_write(char *node, u32 value)
 		return -ENODEV;
 
 	snprintf(tmp, STRING_MAX, "%s/%s", SYSFS_PATH, node);
+
 	fd = open(tmp, O_WRONLY);
+	if (fd < 0) {
+		printf("failed to open %s: %d\n", tmp, errno);
+		return -errno;
+	}
+
 	snprintf(tmp, STRING_MAX, "%x", value);
+
 	ret = write(fd, tmp, STRING_MAX);
+	if (ret < 0) {
+		printf("failed to write %s: %d\n", tmp, errno);
+		close(fd);
+		return -errno;
+	}
+
 	close(fd);
 
-	if (ret == strlen(tmp) + 1)
-		ret = sizeof(value);
-	else
-		ret = 0;
-
-	return ret;
+	return 0;
 }
 
 static int reg_init(struct zynq_ipif *ipif, u32 size)
 {
 	struct zynq_ipif_regmap *regmap = ipif->regmap;
-	u32 i;
+	int ret, i;
 
 	if (!regmap)
 		return -ENODEV;
@@ -76,8 +97,14 @@ static int reg_init(struct zynq_ipif *ipif, u32 size)
 		sysfs_write("reg_readable", regmap[i].readable_type);
 		sysfs_write("reg_writable", regmap[i].writable_type);
 		sysfs_write("reg_volatile", regmap[i].volatile_type);
-		if (regmap[i].writable_type && regmap[i].val)
-			sysfs_write("reg_val", regmap[i].val);
+		if (regmap[i].writable_type && regmap[i].val) {
+			ret = sysfs_write("reg_val", regmap[i].val);
+			if (ret) {
+				printf("failed to write reg_val: %d\n", ret);
+				pthread_mutex_unlock(&ipif->mutex);
+				return ret;
+			}
+		}
 	}
 	pthread_mutex_unlock(&ipif->mutex);
 
@@ -93,8 +120,10 @@ int zynq_ipif_reg_read(struct zynq_ipif *ipif, u32 addr, u32 *val)
 	sysfs_write("reg_addr", addr);
 	ret = sysfs_read("reg_val", val);
 	pthread_mutex_unlock(&ipif->mutex);
+	if (ret)
+		return -EINVAL;
 
-	return ret == sizeof(val) ? 0 : -EINVAL;
+	return ret;
 }
 
 int zynq_ipif_reg_write(struct zynq_ipif *ipif, u32 addr, u32 val)
@@ -106,8 +135,10 @@ int zynq_ipif_reg_write(struct zynq_ipif *ipif, u32 addr, u32 val)
 	sysfs_write("reg_addr", addr);
 	ret = sysfs_write("reg_val", val);
 	pthread_mutex_unlock(&ipif->mutex);
+	if (ret)
+		return -EINVAL;
 
-	return ret == sizeof(val) ? 0 : -EINVAL;
+	return ret;
 }
 
 static int dma_default_condition(struct zynq_ipif_dma *dma)
@@ -171,38 +202,64 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 	dma_engine = &dma->parent->dma_engine;
 
 	snprintf(tmp, STRING_MAX, "dma%d_cyclic", dma->index);
-	sysfs_write(tmp, dma_config->cyclic);
+	ret = sysfs_write(tmp, dma_config->cyclic);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "dma%d_width", dma->index);
-	sysfs_write(tmp, dma_config->width);
+	ret = sysfs_write(tmp, dma_config->width);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "dma%d_burst", dma->index);
-	sysfs_write(tmp, dma_config->burst);
+	ret = sysfs_write(tmp, dma_config->burst);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "dma%d_buf_size", dma->index);
-	sysfs_write(tmp, dma_config->buf_size);
+	ret = sysfs_write(tmp, dma_config->buf_size);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "dma%d_buf_num", dma->index);
-	sysfs_write(tmp, dma_config->buf_num);
+	ret = sysfs_write(tmp, dma_config->buf_num);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "dma%d_%s", dma->index, dma_config->direction ? "src" : "dst");
-	sysfs_write(tmp, dma_config->reg_addr);
+	ret = sysfs_write(tmp, dma_config->reg_addr);
+	if (ret)
+		return ret;
 
 	snprintf(tmp, STRING_MAX, "/dev/zynq_ipif_dma%d", dma->index);
 	dma->fd = open(tmp, O_RDWR);
-	if (!dma->fd)
-		return -ENODEV;
+	if (dma->fd < 0)
+		return -errno;
 
-	fcntl(dma->fd, F_SETOWN, getpid());
+	ret = fcntl(dma->fd, F_SETOWN, getpid());
+	if (ret < 0) {
+		ret = -errno;
+		goto fail_setown;
+	}
+
 	flags = fcntl(dma->fd, F_GETFL);
-	fcntl(dma->fd, F_SETFL, flags | FASYNC);
+	if (flags < 0) {
+		ret = -errno;
+		goto fail_setown;
+	}
+
+	ret = fcntl(dma->fd, F_SETFL, flags | FASYNC);
+	if (flags < 0) {
+		ret = -errno;
+		goto fail_setown;
+	}
 
 	sem_init(&dma->sem, 0, 0);
 
 	ret = pthread_create(&dma->io_thread, NULL, DMA_callback, (void *)dma);
 	if (ret) {
 		printf("failed to create pthread: %d\n", ret);
-		return ret;
+		goto fail_setown;
 	}
 
 	dma->ev.events = EPOLLET;
@@ -212,18 +269,24 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 	ret = epoll_ctl(dma_engine->epfd, EPOLL_CTL_ADD, dma->fd, &dma->ev);
 	if (ret < 0) {
 		printf("Error epoll_ctl: %i\n", errno);
-		return ret;
+		goto fail_epoll;
 	}
 
 	if (dma_config->access & DMA_BUF_ACCESS_TYPE_MASK == DMA_BUF_ACCESS_TYPE_MMAP) {
 		if (!dma_config->cyclic) {
 			printf("Scatter list does not work with mmap\n");
-			return ret;
+			ret = -EINVAL;
+			goto fail_epoll;
 		}
 
 		dma->buf = mmap(0, PAGE_ALIGN(dma_size),
 				dma_config->direction ? PROT_READ : PROT_WRITE,
 				MAP_SHARED, dma->fd, 0);
+		if (dma->buf == MAP_FAILED) {
+			printf("failed to execute memory map: %d\n", errno);
+			ret = -errno;
+			goto fail_epoll;
+		}
 	}
 
 	/* Copy them to prevent from being modified on the fly */
@@ -238,9 +301,15 @@ int zynq_ipif_dma_init(struct zynq_ipif_dma *dma, struct zynq_ipif_dma_config *d
 	dma->condition = dma_config->condition;
 
 	dma->active = 1;
-	/* TODO Error out restore */
 
 	return 0;
+
+fail_epoll:
+	pthread_cancel(dma->io_thread);
+fail_setown:
+	close(dma->fd);
+
+	return ret;
 }
 
 int zynq_ipif_dma_read_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
@@ -266,6 +335,7 @@ int zynq_ipif_dma_write_buffer(struct zynq_ipif_dma *dma, u8 *buf, u32 size)
 int zynq_ipif_dma_enable(struct zynq_ipif_dma *dma, bool enable)
 {
 	char tmp[STRING_MAX];
+	int ret;
 
 	if (!dma || !dma->active)
 		return -ENODEV;
@@ -274,7 +344,12 @@ int zynq_ipif_dma_enable(struct zynq_ipif_dma *dma, bool enable)
 	dma->io_ptr = 0;
 
 	snprintf(tmp, STRING_MAX, "dma%d_ena", dma->index);
-	sysfs_write(tmp, enable);
+	ret = sysfs_write(tmp, enable);
+	if (ret) {
+		printf("failed to %sable DMA channel %d\n",
+		       enable ? "en" : "dis", dma->index);
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -355,30 +430,51 @@ int zynq_ipif_init(struct zynq_ipif *ipif, struct zynq_ipif_config *ipif_config)
 	dma_engine->max_conn = DMA_CHAN_MAX;
 	dma_engine->epfd = epoll_create(DMA_CHAN_MAX);
 
-	reg_init(ipif, ipif_config->regmap_size);
+	ret = reg_init(ipif, ipif_config->regmap_size);
+	if (ret) {
+		printf("failed to initialize regmap: %d\n", ret);
+		return ret;
+	}
 
 	ipif->fd = open("/dev/zynq_ipif_irq", O_RDWR);
-	if (!ipif->fd)
-		return -ENODEV;
+	if (ipif->fd < 0)
+		return -errno;
 
 	ipif->epfd = epoll_create1(0);
+	if (ipif->epfd < 0) {
+		printf("failed to create epoll: %d\n", errno);
+		goto fail_epoll;
+	}
 
 	ev.events = EPOLLIN | EPOLLET;
 	ev.data.fd = ipif->fd;
 
 	ret = epoll_ctl(ipif->epfd, EPOLL_CTL_ADD, ipif->fd, &ev);
-	if (ret < 0)
+	if (ret < 0) {
 		printf("Error epoll_ctl: %i\n", errno);
+		goto fail_epoll;
+	}
 
 	ret = pthread_create(&ipif->epoll_thread, NULL, IRQ_thread, (void *)ipif);
-	if (ret)
+	if (ret) {
 		printf("failed to create pthread: %d\n", ret);
+		goto fail_epoll;
+	}
 
 	ret = pthread_create(&ipif->irq_thread, NULL, IRQ_handler, (void *)ipif);
-	if (ret)
+	if (ret) {
 		printf("failed to create pthread: %d\n", ret);
+		goto fail_irq_thread;
+	}
 
 	return 0;
+
+fail_irq_thread:
+	pthread_cancel(ipif->epoll_thread);
+fail_epoll:
+	close(ipif->fd);
+
+	return ret;
 }
 
 int zynq_ipif_prepare_dma_engine(struct zynq_ipif *ipif)
